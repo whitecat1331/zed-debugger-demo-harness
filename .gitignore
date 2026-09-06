@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+
+# Rust
+rust/target/
+
+# C
+c/main
+c/main.exe
+c/*.o
+c/*.obj
+
+# TypeScript
+typescript/node_modules/
+typescript/dist/
+golang/debug.exe
