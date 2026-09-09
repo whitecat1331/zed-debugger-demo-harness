@@ -5,11 +5,11 @@ description: Run Zed's local verification gates — clippy, tests, formatting, a
 
 # Zed Verify
 
-> **First: load `remote-compiler`.** Verification gates (clippy, `cargo test`,
-> `cargo check`) run on the remote compiler VMs, never the laptop. "Local checks"
-> in this skill means the **`compiler` VM** — the laptop is only the control plane
-> (git, editing, orchestration). See the `remote-compiler` skill for how to reach
-> the boxes and run checks without disturbing their branches.
+> **Run checks on a remote build machine.** Verification gates (clippy,
+> `cargo test`, `cargo check`) run on a remote compiler, never the laptop.
+> "Local checks" in this skill means the **build VM**; the laptop is only the
+> control plane (git, editing, orchestration). See your build setup for how to
+> reach the boxes and run checks without disturbing their branches.
 
 Run the Zed repo's local checks. Use `./script/clippy`, not `cargo clippy` (it pins the right toolchain and flags).
 
@@ -40,8 +40,8 @@ script/check-todos
 
 ## Quick build check
 
-Heavy builds go to the remote compiler (see `remote-compiler`). For a quick
-type-check on one crate — run on the **`compiler` VM**, not the laptop:
+Heavy builds go to a remote compiler. For a quick type-check on one crate,
+run on the **build VM**, not the laptop:
 
 ```
 cargo check -p <crate>

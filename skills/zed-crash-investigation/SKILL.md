@@ -37,4 +37,4 @@ The canonical workflow lives in these prompt files — load and follow them:
 
 ## Build
 
-Heavy builds go to the remote compiler (see the `remote-compiler` skill), not the laptop.
+Heavy builds go to a remote compiler, not the laptop.

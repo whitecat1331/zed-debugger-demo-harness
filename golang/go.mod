@@ -1,3 +1,3 @@
-module zed-debugger-demo/golang
+module harness/golang
 
 go 1.21

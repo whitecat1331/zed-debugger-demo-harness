@@ -15,10 +15,10 @@ import subprocess
 import sys
 import time
 
-PROJECT_DIR = r"C:\Users\YOURUSERNAME\Desktop\zed-debugger-demo"
-BUILD_DIR = r"C:\Users\YOURUSERNAME\Desktop\zed-dev-build"
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BUILD_DIR = os.environ.get("ZED_BUILD_DIR", "")
 RESUME_FILE = os.path.join(PROJECT_DIR, "resume-loop.md")
-LOG_FILE = os.path.join(PROJECT_DIR, "zed-tools", "loop", "restart-zed.log")
+LOG_FILE = os.path.join(PROJECT_DIR, "scripts", "loop", "restart-zed.log")
 
 DEFAULT_PROMPT = (
     "Resume the Zed debugger fix loop: "

@@ -42,11 +42,11 @@ Load [`skills/zed-verify/SKILL.md`](skills/zed-verify/SKILL.md). In the Zed fork
 - `./script/clippy` (not `cargo clippy`).
 - Narrow `cargo test -p <crate>` for the crates you touched.
 
-### 3. Build — `remote-compiler` (global)
+### 3. Build
 
-Heavy Zed builds go to a remote compiler, never the laptop. Follow your
-`remote-compiler` setup to rebuild `zed.exe` (+ `cli.exe`, `conpty.dll`,
-`OpenConsole.exe`) and copy the runnable set into the dev-build folder.
+Heavy Zed builds go to a remote compiler, never the laptop. Follow your build
+setup to rebuild `zed.exe` (+ `cli.exe`, `conpty.dll`, `OpenConsole.exe`) and
+copy the runnable set into the dev-build folder.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: debugger-loop
-description: Manage the Zed debugger-tool fix loop state (zed-debugger-demo/LOOP_STATE.json) and auto-update its position whenever the chat changes direction in the loop. Use when the user mentions the loop state or resume, or when the conversation shifts between testing/fixing/verifying (clippy)/rebuilding the debugger tool — including remapping commit SHAs after a rebase.
+description: Manage the Zed debugger-tool fix loop state (LOOP_STATE.json) and auto-update its position whenever the chat changes direction in the loop. Use when the user mentions the loop state or resume, or when the conversation shifts between testing/fixing/verifying (clippy)/rebuilding the debugger tool — including remapping commit SHAs after a rebase.
 ---
 
 # Debugger Fix Loop
@@ -13,9 +13,9 @@ a repeating cycle of four phases:
 The `verify` phase is itself a nested loop for clippy issues (see "Clippy
 verify phase" below).
 
-State lives in **`zed-debugger-demo/LOOP_STATE.json`**. This skill is the only
+State lives in **`LOOP_STATE.json`**. This skill is the only
 thing that should edit that file. Issue identity/status/cause lives in
-**`zed-debugger-demo/ISSUES.json`**; this skill keeps the two reconciled.
+**`ISSUES.json`**; this skill keeps the two reconciled.
 
 ## Auto-update on direction change
 
@@ -43,7 +43,7 @@ the phase just completed for back-compat, but drive resume from `next_action`.
 
 ## Read state first
 
-Always `read_file` `zed-debugger-demo/LOOP_STATE.json` before changing it, and
+Always `read_file` `LOOP_STATE.json` before changing it, and
 verify any commit SHA you write against real git output — never guess a hash.
 
 ## Schema
@@ -53,7 +53,7 @@ verify any commit SHA you write against real git output — never guess a hash.
 | `iteration` | 1-based count of completed `run` phases (test reports) |
 | `phase` | The phase just completed: `run`, `fix`, `verify`, or `restart` (redundant with `next_action`) |
 | `next_action` | The phase to do next: `run`, `fix`, `verify`, or `restart` (source of truth for resume) |
-| `last_report` | Path to the latest acceptance report (relative to `zed-debugger-demo/`) |
+| `last_report` | Path to the latest acceptance report (relative to the harness root) |
 | `action_plan` | Path to the in-progress plan of action |
 | `build_commit` | The commit SHA the next build must be based on |
 | `fixes_applied` | List of `{"name", "commits": ["crate:short-sha"], "issue"?}` objects |
@@ -63,17 +63,16 @@ verify any commit SHA you write against real git output — never guess a hash.
 
 ## Phase cycle
 
-`resume-loop.md` in `zed-debugger-demo/` is the resume entry point. The phases
+`resume-loop.md` at the harness root is the resume entry point. The phases
 run in order `run → fix → verify → restart → run`, and `next_action` is what to
 do next:
 
 - `next_action: "fix"` → fix the acceptance-suite failures and commit them.
 - `next_action: "verify"` → run the clippy nested loop (below). When it comes
   back clean, set `next_action: "restart"`.
-- `next_action: "restart"` → rebuild `zed.exe` at `build_commit` via
-  `remote-compiler`, then launch a **new** Zed — do **not** kill the running
-  one — via `zed-tools/loop/restart-zed.py`, which injects `--agent-prompt
-  resume-loop.md`.
+- `next_action: "restart"` → rebuild `zed.exe` at `build_commit` via your build
+  setup, then launch a **new** Zed (do **not** kill the running one) via
+  `scripts/loop/restart-zed.py`, which injects `--agent-prompt resume-loop.md`.
 - `next_action: "run"` → run the acceptance suite.
 
 ## Clippy verify phase (nested loop)
@@ -88,7 +87,7 @@ The nested loop is driven by `verify.state` in `LOOP_STATE.json`:
     verify_clippy → plan → execute → verify_clippy → … (until clean) → restart
 
 1. **`verify_clippy`** — run clippy via the **`zed-verify`** skill
-   (`./script/clippy` on the `compiler` VM; load `remote-compiler` first).
+   (`./script/clippy` on your build machine).
    Record results in `verify.last_clippy_run` and failures in
    `verify.clippy_issues`.
 2. If clippy is **clean**, set `verify.state: "clean"`, then
@@ -127,23 +126,23 @@ spinning indefinitely.
    issue, set `stall_key` to that `ISSUES.json` ID; clear it to `null` when
    unblocked.
 
-Before recording state, reconcile `zed-debugger-demo/ISSUES.json` (mark resolved
+Before recording state, reconcile `ISSUES.json` (mark resolved
 issues, update `last_seen`, add new IDs) and run
-`zed-tools/loop/check-loop-state.py` — it fails on drift. Always re-read and
+`scripts/loop/check-loop-state.py` — it fails on drift. Always re-read and
 re-verify the file after writing it.
 
 ## Location hygiene
 
-The loop state, action plan, and reports live in `zed-debugger-demo/` (sibling
-of the open-source `zed` fork). Never create loop-state or plan files inside
-`zed`; personal scripts go in `zed-debugger-demo/zed-tools/`.
+The loop state, action plan, and reports live at the harness root (sibling of
+the open-source `zed` fork). Never create loop-state or plan files inside
+`zed`; personal scripts go in `scripts/`.
 
 ## Related skills
 
 - `debugger-suite` — the `run` phase (acceptance suite).
 - `zed-verify` — the `verify` phase (clippy nested loop).
-- `remote-compiler` — the `restart` phase (Windows `zed.exe` build).
-- `zed-tools/loop/restart-zed.py` — launches a fresh Zed with the resume prompt
+- your build setup (the `restart` phase, Windows `zed.exe` build).
+- `scripts/loop/restart-zed.py` — launches a fresh Zed with the resume prompt
   (non-destructive: never kill the running instance).
-- `plan-manager` — owns the `action_plan` under `zed-debugger-demo/plans/`.
+- `plan-manager` — owns the `action_plan` under `plans/`.
 - `atomic-commits` — commit fixes (Zed style) before updating state.

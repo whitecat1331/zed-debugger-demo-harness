@@ -6,7 +6,7 @@ description: Run the Zed agent debugger-tool acceptance suite (Python, Go, JavaS
 # Zed debugger-tool acceptance suite
 
 Drive the Zed agent **`debugger`** tool (the DAP client) through the
-`zed-debugger-demo` harness to prove it works against every bundled adapter.
+through this harness to prove it works against every bundled adapter.
 The point is to find and fix each deliberate bug **using the tool**, not by
 reading the source.
 
@@ -14,8 +14,7 @@ reading the source.
 
 - A Zed build with the `debugger` agent tool enabled (the revived PR #58439
   build).
-- The `zed-debugger-demo` repo checked out locally — clone it onto this machine
-  if it isn't present.
+- This harness checked out locally.
 - Toolchains for the languages under test (see the harness `README.md`):
   Python + `debugpy`; Node; Go; `cargo`/`rustc`; a C compiler + `gdb`.
   Zed auto-downloads the `vscode-js-debug`, CodeLLDB, and Delve adapters.
@@ -28,6 +27,14 @@ reading the source.
 - Exercise `run_to_line` and `pause` for **every** adapter — they are the
   highest-risk capabilities.
 
+## Regression coverage for new operations
+
+Every new `debugger` operation must be added to the acceptance criteria below
+before its feature work is considered complete — an operation that is not
+exercised end-to-end against a real adapter is not "done". When you add an
+operation to the tool, extend the acceptance criteria and add a runbook
+procedure that drives it through `snapshot`/`control` to prove it behaves.
+
 ## Tool surface
 
 `list_adapters`, `start_session` (`{adapter, label}` + the launch-config
@@ -35,6 +42,8 @@ fields spread at the scenario top level), `set_breakpoints` /
 `remove_breakpoints` (`{path, line, condition?}`), `snapshot`
 (`{session_id, snapshot_limits?}`), `control`
 (`continue | pause | step_over | step_in | step_out | run_to_line`),
+`evaluate` (`{session_id, expression, frame_id?}`), `set_variable`
+(`{session_id, variables_reference, name, value, frame_id?}`),
 `list_sessions`, `stop_session`.
 
 ## Adapter matrix
@@ -167,6 +176,16 @@ Every non-Python `main` file contains the same four defects, one per capability:
 For each language: `start_session` → work all four defects → `stop_session` →
 move to the next language.
 
+### Evaluate / set_variable (new operations)
+
+- `evaluate`: while stopped at a breakpoint, evaluate a simple expression
+  (`{session_id, expression}`) and assert the returned `result`.
+- `set_variable`: from a `snapshot`, take a scope's `variables_reference` and a
+  variable `name`, set it (`{session_id, variables_reference, name, value}`),
+  then `snapshot` again and confirm the value changed.
+- Exercise both on at least one adapter per language, and confirm the
+  capability-gated error on an adapter that lacks `supports_set_variable`.
+
 ## Acceptance criteria
 
 For every language, all of the following must hold:
@@ -175,6 +194,9 @@ For every language, all of the following must hold:
 - Each fix was verified by `snapshot`-ing the correct value.
 - `run_to_line` reaches the corruption line and the snapshot shows it.
 - `pause` interrupts the hung `--hang` run and the snapshot shows the stuck loop.
+- `evaluate` returns the correct computed value (e.g. `1 + 1` → `"2"`).
+- `set_variable` mutates a variable and a follow-up `snapshot` shows the new
+  value.
 - After re-breaking, the wrong value is observable again.
 
 Expected outputs are annotated in each `main` file as `(expected …)`.
@@ -206,12 +228,12 @@ Known adapter gotchas observed on the acceptance runs (2026-09-04):
 
 ## Report
 
-`zed-debugger-demo/test-reports/TEST_REPORT_TEMPLATE.md` is a blank template —
+`test-reports/TEST_REPORT_TEMPLATE.md` is a blank template —
 **never fill it in place**. At the start of the run, copy it to the reports
 folder with a date/time suffix, then fill in that copy:
 
 ```
-zed-debugger-demo/test-reports/TEST_REPORT-YYYY-MM-DD-HHMM.md
+test-reports/TEST_REPORT-YYYY-MM-DD-HHMM.md
 ```
 
 The template has a per-language checklist (found / fixed / re-broken),
@@ -219,7 +241,7 @@ capability checks, and a findings section keyed by stable issue ID. Return the
 completed report plus a short prose summary of anything on the watch list,
 including adapter + operation + session id + config + snapshot output.
 
-After filling the report, reconcile `zed-debugger-demo/ISSUES.json`: mark
+After filling the report, reconcile `ISSUES.json`: mark
 resolved issues, update `last_seen`, add new IDs, and record a cause assessment
 for each finding (see "Cause assessment"). Findings in the report must reference
 stable IDs (`DAP-xxx`, `HOST-xxx`), never prose "prior finding N".
@@ -243,16 +265,15 @@ Rules:
 
 ## Fix & re-break
 
-Use `zed-debugger-demo/REBREAKING.md` for the exact broken → fixed → re-broken
+Use `REBREAKING.md` for the exact broken → fixed → re-broken
 form of each of the four shared defects.
 
 ## References
 
-- `zed-debugger-demo/TESTING.md` — full agent brief (authoritative).
-- `zed-debugger-demo/test-reports/TEST_REPORT_TEMPLATE.md` — fill-in report
+- `TESTING.md` — full agent brief (authoritative).
+- `test-reports/TEST_REPORT_TEMPLATE.md` — fill-in report
   template (copy to `TEST_REPORT-YYYY-MM-DD-HHMM.md` before filling in).
-- `zed-debugger-demo/REBREAKING.md` — fix/re-break reference.
-- `zed-debugger-demo/README.md` — launch configs, prerequisites, Python hints.
-- `zed-debugger-demo/ROADMAP.md` — future adapters + rendering-fidelity checks.
-- `zed-debugger-demo/plans/completed-plans/DEBUGGER_SUITE_PARALLEL_PREP_DRIVER.md` —
-  the validated single-driver + parallel-prep execution pattern (detailed rationale).
+- `REBREAKING.md` — fix/re-break reference.
+- `README.md` — launch configs, prerequisites, Python hints.
+- `ROADMAP.md` — future adapters + rendering-fidelity checks.
+- `DRIVING_THE_SUITE.md` — the single-driver + parallel-prep execution pattern.

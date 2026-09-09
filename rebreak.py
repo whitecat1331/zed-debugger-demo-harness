@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-break the zed-debugger-demo after the agent has fixed the bugs.
+"""Re-break this harness after the agent has fixed the bugs.
 
 Run this to restore every bug file to its original broken state so the
 exercise can be run again. It applies the inverse of each canonical fix.

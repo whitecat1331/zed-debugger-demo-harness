@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-PATH = Path(r"C:\Users\YOURUSERNAME\Desktop\zed-debugger-demo\ISSUES.json")
+PATH = Path("ISSUES.json")
 
 MAPPING = {
     "ff01c5981e": "d1a641c3f3",

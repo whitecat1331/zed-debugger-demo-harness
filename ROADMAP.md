@@ -50,11 +50,3 @@ Rendering fidelity is judged by reading `snapshot` output, so a "failure" may
 be a genuine adapter gap rather than a test bug — that is the point of these
 checks.
 
-## Agent control of debugger-only features (planned)
-
-Close the parity gap between what the debugger UI offers and what the agent's
-debugger tool can control — step back first, then detach/restart/restart-frame,
-data + exception breakpoints, memory read, and history snapshots. See
-`plans/initial-plans/AGENT_DEBUGGER_CONTROL_PARITY.md`. Evaluate and set-variable
-are tracked separately in
-`plans/initial-plans/AGENT_EVALUATE_OPERATION_AND_UI_LOCKOUT.md`.
