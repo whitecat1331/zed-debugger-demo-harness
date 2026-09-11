@@ -5,7 +5,15 @@ This project exercises the agent **`debugger` tool** in the revived Zed PR
 the "final boss").
 
 The point is **not** to fix them by reading the code — it's to find and fix them
-**using the debugger**, proving the rebased debugger tool works end-to-end.
+**using the debugger**, proving the revived debugger tool works end-to-end.
+
+## Hard-fork evidence
+
+This harness produces the acceptance evidence the
+[`whitecat1331/zed`](https://github.com/whitecat1331/zed) hard fork requires from
+AI-assisted PRs — see the fork's `AI_POLICY.md`. A PR that used AI must attach a
+full acceptance run through this suite: a completed, dated `TEST_REPORT-*.md`
+covering the full adapter matrix (not a smoke run).
 
 ## Prerequisites
 
