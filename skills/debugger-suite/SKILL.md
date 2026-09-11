@@ -6,7 +6,7 @@ description: Run the Zed agent debugger-tool acceptance suite (Python, Go, JavaS
 # Zed debugger-tool acceptance suite
 
 Drive the Zed agent **`debugger`** tool (the DAP client) through the
-through this harness to prove it works against every bundled adapter.
+`zed-debugger-demo` harness to prove it works against every bundled adapter.
 The point is to find and fix each deliberate bug **using the tool**, not by
 reading the source.
 
@@ -14,7 +14,8 @@ reading the source.
 
 - A Zed build with the `debugger` agent tool enabled (the revived PR #58439
   build).
-- This harness checked out locally.
+- The `zed-debugger-demo` repo checked out locally — clone it onto this machine
+  if it isn't present.
 - Toolchains for the languages under test (see the harness `README.md`):
   Python + `debugpy`; Node; Go; `cargo`/`rustc`; a C compiler + `gdb`.
   Zed auto-downloads the `vscode-js-debug`, CodeLLDB, and Delve adapters.
@@ -41,7 +42,8 @@ procedure that drives it through `snapshot`/`control` to prove it behaves.
 fields spread at the scenario top level), `set_breakpoints` /
 `remove_breakpoints` (`{path, line, condition?}`), `snapshot`
 (`{session_id, snapshot_limits?}`), `control`
-(`continue | pause | step_over | step_in | step_out | run_to_line`),
+(`continue | pause | step_over | step_in | step_out | step_back | run_to_line |
+detach | restart | restart_frame`),
 `evaluate` (`{session_id, expression, frame_id?}`), `set_variable`
 (`{session_id, variables_reference, name, value, frame_id?}`),
 `list_sessions`, `stop_session`.
@@ -125,7 +127,7 @@ map; none touch the debugger tool, breakpoints, or the ledger/report:
 | Python | `python main.py` broken output; 10-bug line map |
 | JavaScript | `node --version`; 4-defect line map |
 | TypeScript | `npm install && npm run build`; confirm `dist/main.js` + source map; line map |
-| Go | `go version` / `dlv version` (expect DAP-001 block); line map |
+| Go | `go version` / `dlv version` (expect ISSUE-0001 block); line map |
 | Rust | `cargo build`; confirm binary path; line map |
 | C | `gcc -g -O0 main.c -o main`; confirm binary; line map |
 
@@ -146,6 +148,15 @@ suggested `cwd` = repo root when the correct value is `javascript/` per
   and `max_variable_value_length` collapse it to a few hundred.
 - **Batch `set_breakpoints` before launch**; don't mutate breakpoints mid-session.
 - **One session per language**, stopped before moving on.
+
+### Run modes
+
+- **Full run**: exercise every capability on every adapter where supported.
+- **Smoke run**: exercise only the changed path plus the highest-risk
+  capabilities (`pause`, breakpoint+`snapshot`, `run_to_line`); carry forward
+  everything else explicitly.
+- A smoke run must be **labeled as smoke** in the report so it is never
+  mistaken for full coverage.
 
 ## Runbook
 
@@ -183,8 +194,62 @@ move to the next language.
 - `set_variable`: from a `snapshot`, take a scope's `variables_reference` and a
   variable `name`, set it (`{session_id, variables_reference, name, value}`),
   then `snapshot` again and confirm the value changed.
-- Exercise both on at least one adapter per language, and confirm the
-  capability-gated error on an adapter that lacks `supports_set_variable`.
+- Exercise `set_variable` and `evaluate` across the adapter matrix: every
+  adapter that advertises `supports_set_variable` gets the happy path, and the
+  negative gate below covers at least one adapter that lacks support (adapters
+  without support are negative-gated, not happy-pathed).
+- Exercise `evaluate`, `step_back`, and `set_variable` through a source-mapped
+  frame (TypeScript `main.ts` compiled to `dist/main.js`, breakpoint set in the
+  `.ts` file) to catch a stale/bogus `frame_id` or `variables_reference` routed
+  through a source-mapped frame.
+
+Negative gate for `set_variable` (mirrors the `step_back` gate):
+
+1. `start_session` and stop at a breakpoint/entry on an adapter that does not
+   advertise `supports_set_variable`.
+2. From a `snapshot`, take a scope's `variables_reference` and a variable
+   `name`, then invoke `set_variable` against that adapter.
+3. Assert the tool returns a clear "does not support"-style error (no hang, no
+   silent no-op, no `setVariable` request emitted).
+
+### step_back (new control action)
+
+Reverse execution is not advertised by any bundled adapter
+(`supports_step_back` is absent), so `control step_back` must return a clear
+unsupported-capability error instead of sending a `stepBack` DAP request.
+Exercise the gate on every adapter:
+
+1. `start_session` and stop at a breakpoint/entry.
+2. `control` with `action: "step_back"` on the stopped thread.
+3. Assert the tool returns an error mentioning "does not support" (no hang,
+   no silent no-op, no `stepBack` request emitted).
+
+The happy path (an actual reverse step) is validated by the fake-adapter source
+test in `crates/debugger_ui/src/tests/agent_api.rs`, since no bundled adapter
+implements `stepBack`.
+
+### detach / restart / restart_frame (new control actions)
+
+These three are capability/state-gated, so the suite exercises the gate on
+**every** adapter rather than a happy path (the happy paths are validated by the
+fake-adapter source tests in `crates/debugger_ui/src/tests/agent_api.rs`):
+
+- **`detach`** — only valid for attach sessions. Every suite session is a
+  launch, so `control action: "detach"` must return a clear `not attached`
+  error (no DAP `disconnect` emitted, no hang, no silent no-op).
+- **`restart`** — gated on `supports_restart_request`. On an adapter that does
+  not advertise it, `control action: "restart"` must return a clear
+  `does not support` error. If an adapter advertises it, assert the session
+  restarts and record the adapter in the report.
+- **`restart_frame`** — gated on `supports_restart_frame`, using a `frame_id`
+  from a `snapshot`. Same unsupported-capability contract as `restart`.
+
+Procedure per adapter (after `start_session` and stopping at a breakpoint/entry):
+
+1. `snapshot` to obtain a stopped thread (and, for `restart_frame`, a frame id).
+2. `control` each action and record the result in the report.
+3. Assert the error is a clear, immediate capability/state error — never a
+   hang or a DAP request the adapter silently rejects.
 
 ## Acceptance criteria
 
@@ -197,6 +262,16 @@ For every language, all of the following must hold:
 - `evaluate` returns the correct computed value (e.g. `1 + 1` → `"2"`).
 - `set_variable` mutates a variable and a follow-up `snapshot` shows the new
   value.
+- `set_variable` against an adapter lacking `supports_set_variable` returns a
+  clear "does not support"-style error (no hang, no silent no-op, no
+  `setVariable` request emitted).
+- `control step_back` returns a clear unsupported-capability error on every
+  adapter (no bundled adapter advertises `supports_step_back`).
+- `control detach` returns a clear `not attached` error on every launch session.
+- `control restart` returns a clear `does not support` error (or restarts, when
+  the adapter advertises `supports_restart_request`).
+- `control restart_frame` returns a clear `does not support` error (or restarts
+  the frame, when the adapter advertises `supports_restart_frame`).
 - After re-breaking, the wrong value is observable again.
 
 Expected outputs are annotated in each `main` file as `(expected …)`.
@@ -206,6 +281,8 @@ Expected outputs are annotated in each `main` file as `(expected …)`.
 - `run_to_line` on Delve (historically flaky) and CodeLLDB.
 - `pause` reliability on CodeLLDB and GDB.
 - TypeScript source-map resolution (breakpoint in `.ts`, execution in `dist/`).
+- `evaluate` / `step_back` / `set_variable` through a source-mapped frame
+  (stale/bogus `frame_id` or `variables_reference`).
 - Any adapter that fails to launch, or returns empty/unexpanded variable
   children in `snapshot`.
 
@@ -223,17 +300,17 @@ Known adapter gotchas observed on the acceptance runs (2026-09-04):
   values from snapshots.
 - **Debugpy `pause`** — historically the first `pause` returned a
   "did not halt"-style status and needed a second `pause`; fixed in commit
-  `49082d4083` (DAP-002), so a single `pause` should halt the current build.
+  `49082d4083` (ISSUE-0002), so a single `pause` should halt the current build.
   If you still see "did not halt", pause again as a fallback.
 
 ## Report
 
-`test-reports/TEST_REPORT_TEMPLATE.md` is a blank template —
+`zed-debugger-demo/test-reports/TEST_REPORT_TEMPLATE.md` is a blank template —
 **never fill it in place**. At the start of the run, copy it to the reports
 folder with a date/time suffix, then fill in that copy:
 
 ```
-test-reports/TEST_REPORT-YYYY-MM-DD-HHMM.md
+zed-debugger-demo/test-reports/TEST_REPORT-YYYY-MM-DD-HHMM.md
 ```
 
 The template has a per-language checklist (found / fixed / re-broken),
@@ -241,10 +318,10 @@ capability checks, and a findings section keyed by stable issue ID. Return the
 completed report plus a short prose summary of anything on the watch list,
 including adapter + operation + session id + config + snapshot output.
 
-After filling the report, reconcile `ISSUES.json`: mark
+After filling the report, reconcile `zed-debugger-demo/ISSUES.json`: mark
 resolved issues, update `last_seen`, add new IDs, and record a cause assessment
 for each finding (see "Cause assessment"). Findings in the report must reference
-stable IDs (`DAP-xxx`, `HOST-xxx`), never prose "prior finding N".
+stable IDs (`ISSUE-xxxx`), never prose "prior finding N".
 
 ## Cause assessment (no guesses)
 
@@ -265,15 +342,16 @@ Rules:
 
 ## Fix & re-break
 
-Use `REBREAKING.md` for the exact broken → fixed → re-broken
+Use `zed-debugger-demo/REBREAKING.md` for the exact broken → fixed → re-broken
 form of each of the four shared defects.
 
 ## References
 
-- `TESTING.md` — full agent brief (authoritative).
-- `test-reports/TEST_REPORT_TEMPLATE.md` — fill-in report
+- `zed-debugger-demo/TESTING.md` — full agent brief (authoritative).
+- `zed-debugger-demo/test-reports/TEST_REPORT_TEMPLATE.md` — fill-in report
   template (copy to `TEST_REPORT-YYYY-MM-DD-HHMM.md` before filling in).
-- `REBREAKING.md` — fix/re-break reference.
-- `README.md` — launch configs, prerequisites, Python hints.
-- `ROADMAP.md` — future adapters + rendering-fidelity checks.
-- `DRIVING_THE_SUITE.md` — the single-driver + parallel-prep execution pattern.
+- `zed-debugger-demo/REBREAKING.md` — fix/re-break reference.
+- `zed-debugger-demo/README.md` — launch configs, prerequisites, Python hints.
+- `zed-debugger-demo/ROADMAP.md` — future adapters + rendering-fidelity checks.
+- `zed-debugger-demo/plans/completed-plans/DEBUGGER_SUITE_PARALLEL_PREP_DRIVER.md` —
+  the validated single-driver + parallel-prep execution pattern (detailed rationale).

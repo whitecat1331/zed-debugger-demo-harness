@@ -28,7 +28,12 @@ Use these `debugger` operations (`list_adapters` shows each adapter's schema):
   `condition` to stop only on failing cases, e.g. `"condition": "num == -4"`).
 - `snapshot` — threads, stack frames, source, variables (optional
   `snapshot_limits` to bound output).
-- `control` — `continue | pause | step_over | step_in | step_out | run_to_line`.
+- `control` — `continue | pause | step_over | step_in | step_out | step_back | run_to_line | detach | restart | restart_frame`.
+- `evaluate` — `{ session_id, expression, frame_id? }`; returns the computed
+  result string and its `variables_reference`.
+- `set_variable` — `{ session_id, variables_reference, name, value, frame_id? }`;
+  pass a scope's `variables_reference` from a snapshot, then `snapshot` again to
+  confirm the change.
 - `list_sessions` / `stop_session`.
 
 Treat `list_sessions` immediately after `start_session` as the source of
@@ -46,6 +51,14 @@ you finish each bug.
   again to confirm it is broken.
 - `run_to_line` and `pause` are the highest-risk capabilities — exercise them
   for **every** adapter, not just Python.
+
+## Regression coverage for new operations
+
+Any new `debugger` operation must be added to this brief's tool surface **and**
+acceptance criteria before its feature work is considered complete. An
+operation that is not exercised end-to-end against a real adapter is not done —
+extend the criteria above and add a runbook procedure that drives the operation
+through `snapshot`/`control` to prove it behaves.
 
 ## Adapter matrix
 
@@ -101,6 +114,45 @@ Every non-Python `main` file contains the same four defects, one per capability:
 
 Per language: `start_session` → work all four defects → `stop_session` → next.
 
+### `step_back` (new control action)
+
+Reverse execution is not advertised by any bundled adapter
+(`supports_step_back` is absent), so `control step_back` must return a clear
+unsupported-capability error instead of sending a `stepBack` DAP request.
+Exercise the gate on every adapter:
+
+1. `start_session` and stop at a breakpoint/entry.
+2. `control` with `action: "step_back"` on the stopped thread.
+3. Assert the tool returns an error mentioning "does not support" (no hang,
+   no silent no-op, no `stepBack` request emitted).
+
+The happy path (an actual reverse step) is validated by the fake-adapter source
+test in `crates/debugger_ui/src/tests/agent_api.rs`, since no bundled adapter
+implements `stepBack`.
+
+### `detach`, `restart`, `restart_frame` (new control actions)
+
+These three are capability/state-gated, so the suite exercises the gate on
+**every** adapter rather than a happy path (the happy paths are validated by the
+fake-adapter source tests in `crates/debugger_ui/src/tests/agent_api.rs`):
+
+- **`detach`** — only valid for attach sessions. Every suite session is a
+  launch, so `control action: "detach"` must return a clear `not attached`
+  error (no DAP `disconnect` emitted, no hang, no silent no-op).
+- **`restart`** — gated on `supports_restart_request`. On an adapter that does
+  not advertise it, `control action: "restart"` must return a clear
+  `does not support` error. If an adapter advertises it, assert the session
+  restarts and record the adapter in the report.
+- **`restart_frame`** — gated on `supports_restart_frame`, using a `frame_id`
+  from a `snapshot`. Same unsupported-capability contract as `restart`.
+
+Procedure per adapter (after `start_session` and stopping at a breakpoint/entry):
+
+1. `snapshot` to obtain a stopped thread (and, for `restart_frame`, a frame id).
+2. `control` each action and record the result in the report.
+3. Assert the error is a clear, immediate capability/state error — never a
+   hang or a DAP request the adapter silently rejects.
+
 ## Acceptance criteria
 
 For every language, all of the following must hold:
@@ -109,6 +161,16 @@ For every language, all of the following must hold:
 - Each fix was verified by `snapshot`-ing the correct value.
 - `run_to_line` reaches the corruption line and the snapshot shows it.
 - `pause` interrupts the hung `--hang` run and the snapshot shows the stuck loop.
+- `evaluate` returns the correct computed value (e.g. `1 + 1` → `"2"`).
+- `set_variable` mutates a variable and a follow-up `snapshot` shows the new
+  value.
+- `control step_back` returns a clear unsupported-capability error on every
+  adapter (no bundled adapter advertises `supports_step_back`).
+- `control detach` returns a clear `not attached` error on every launch session.
+- `control restart` returns a clear `does not support` error (or restarts, when
+  the adapter advertises `supports_restart_request`).
+- `control restart_frame` returns a clear `does not support` error (or restarts
+  the frame, when the adapter advertises `supports_restart_frame`).
 - After re-breaking, the wrong value is observable again.
 
 Expected outputs are annotated in each `main` file as `(expected …)`.
