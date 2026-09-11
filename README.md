@@ -7,6 +7,9 @@ the "final boss").
 The point is **not** to fix them by reading the code — it's to find and fix them
 **using the debugger**, proving the revived debugger tool works end-to-end.
 
+> **AI disclosure.** The majority of this harness was developed using DeepSeek V4 Pro,
+> with assistance from Claude Sonnet 4.6 and Gemini 3.1 Pro.
+
 ## Hard-fork evidence
 
 This harness produces the acceptance evidence the
