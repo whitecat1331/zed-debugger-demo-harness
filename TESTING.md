@@ -28,12 +28,33 @@ Use these `debugger` operations (`list_adapters` shows each adapter's schema):
   `condition` to stop only on failing cases, e.g. `"condition": "num == -4"`).
 - `snapshot` — threads, stack frames, source, variables (optional
   `snapshot_limits` to bound output).
-- `control` — `continue | pause | step_over | step_in | step_out | step_back | run_to_line | detach | restart | restart_frame`.
+- `control` — `continue | pause | step_over | step_in | step_out | step_back | run_to_line | detach | restart | restart_frame`. The step
+  actions accept an optional `granularity` (`line` | `statement` |
+  `instruction`; defaults to `line`).
 - `evaluate` — `{ session_id, expression, frame_id? }`; returns the computed
   result string and its `variables_reference`.
 - `set_variable` — `{ session_id, variables_reference, name, value, frame_id? }`;
   pass a scope's `variables_reference` from a snapshot, then `snapshot` again to
   confirm the change.
+- `list_exception_breakpoints` / `set_exception_breakpoints` — read / enable-or-
+  disable the adapter's exception-breakpoint filters (`{ id, enabled }`).
+- `list_data_breakpoints` / `set_data_breakpoints` — read / set data breakpoints
+  on a variable (`{ variables_reference, name, access_type?, condition?, hit_condition? }`).
+- `set_ignore_breakpoints` — `{ session_id, ignore }`; toggle ignoring all
+  breakpoints for a session.
+- `clear_breakpoints` — clear every source breakpoint in the project.
+- `read_memory` — `{ session_id, memory_reference, offset?, count }`; reads raw
+  memory via DAP `readMemory`, gated on `supports_read_memory_request`. Content
+  is returned base64-encoded with a decoded byte count.
+- `list_modules` / `list_loaded_sources` — `{ session_id }`; list the debuggee's
+  loaded modules (DLLs/shared libraries) and loaded source files, gated on
+  `supports_modules_request` / `supports_loaded_sources_request`.
+- `list_history` / `select_history` — list / select the session's historic
+  stopped-state snapshots (`{ session_id }` / `{ session_id, index }`); the next
+  `snapshot` reflects the selected frame.
+- `list_watch_expressions` / `add_watch_expression` / `remove_watch_expression` —
+  read / add / remove the session's watch list (`{ session_id, expression,
+  frame_id? }`), evaluate-backed.
 - `list_sessions` / `stop_session`.
 
 Treat `list_sessions` immediately after `start_session` as the source of
@@ -153,6 +174,84 @@ Procedure per adapter (after `start_session` and stopping at a breakpoint/entry)
 3. Assert the error is a clear, immediate capability/state error — never a
    hang or a DAP request the adapter silently rejects.
 
+### Breakpoint-class operations (new)
+
+Five new operations (three write ops with read counterparts, plus ignore-all and
+clear-all). Like `step_back` / `restart`, they are capability/state-gated, so the
+suite exercises the gate on every adapter and the happy path where the adapter
+advertises support (happy paths are also covered by fake-adapter source tests in
+`crates/debugger_ui/src/tests/agent_api.rs`):
+
+- **`list_exception_breakpoints`** — returns the adapter's
+  `exception_breakpoint_filters` (id + label + enabled).
+- **`set_exception_breakpoints`** — idempotent enable/disable per filter
+  (`{ id, enabled }`), gated on `exception_breakpoint_filters`; returns a clear
+  `does not support` error when the adapter advertises none.
+- **`list_data_breakpoints`** — returns the session's data breakpoints.
+- **`set_data_breakpoints`** — resolves each `{ variables_reference, name }`
+  through DAP `dataBreakpointInfo` → `dataId`, then `setDataBreakpoints`, gated
+  on `supports_data_breakpoints`; returns a clear `does not support` error when
+  absent.
+- **`set_ignore_breakpoints`** — `{ session_id, ignore }`; re-sends source
+  breakpoints with/without the ignore flag (local running session only).
+- **`clear_breakpoints`** — project-global clear of all source breakpoints.
+
+Procedure per adapter (after `start_session` and stopping at a breakpoint/entry):
+
+1. `list_exception_breakpoints` → record the filters (or the `does not support`
+   gate).
+2. `set_exception_breakpoints` on one filter → `list_exception_breakpoints`
+   confirms the enabled flag changed (or assert the gate).
+3. `set_data_breakpoints` on a variable from a `snapshot` scope →
+   `list_data_breakpoints` shows it (or assert the `does not support` gate).
+4. `set_ignore_breakpoints true` → confirm a breakpoint no longer stops →
+   `set_ignore_breakpoints false`.
+5. `set_breakpoints` then `clear_breakpoints` → `list_breakpoints` returns empty.
+
+### Inspection operations (Phase 4)
+
+Three read/evaluate-backed surfaces the agent can now touch. `read_memory` is
+capability-gated; history and watch are client-side (no DAP gate).
+
+#### `read_memory`
+
+1. `start_session` and stop at a breakpoint/entry; `snapshot` to obtain a
+   stopped thread.
+2. Obtain a `memory_reference` (e.g. from a snapshot variable's
+   `memory_reference`, or an evaluate result).
+3. `read_memory` with `{ session_id, memory_reference, count }`; assert the
+   returned `content` base64-decodes to the requested byte count.
+4. On an adapter that does not advertise `supports_read_memory_request`, assert
+   `read_memory` returns a clear `does not support` error (no `readMemory`
+   request emitted).
+
+#### `list_history` / `select_history`
+
+1. `start_session` and stop at a breakpoint/entry.
+2. Continue/step a couple of times so the session records multiple stopped
+   states.
+3. `list_history` → assert it reports the recorded snapshots (index + thread
+   count).
+4. `select_history` on a valid index → `snapshot` reflects that older frame.
+5. `select_history` on an out-of-bounds index → clear error.
+
+#### `list_modules` / `list_loaded_sources`
+
+1. `start_session` and stop at a breakpoint/entry.
+2. `list_modules` → assert it returns the loaded modules (id, name, path,
+   symbol status) when the adapter advertises `supports_modules_request`.
+3. `list_loaded_sources` → assert it returns the loaded sources (name, path)
+   when the adapter advertises `supports_loaded_sources_request`.
+4. On an adapter that does not advertise the capability, assert the operation
+   returns a clear `does not support` error (no DAP request emitted).
+
+#### Watch expressions
+
+1. `start_session` and stop at a breakpoint/entry.
+2. `add_watch_expression` with `{ session_id, expression }` →
+   `list_watch_expressions` shows it with the evaluated value.
+3. `remove_watch_expression` → `list_watch_expressions` no longer shows it.
+
 ## Acceptance criteria
 
 For every language, all of the following must hold:
@@ -171,6 +270,27 @@ For every language, all of the following must hold:
   the adapter advertises `supports_restart_request`).
 - `control restart_frame` returns a clear `does not support` error (or restarts
   the frame, when the adapter advertises `supports_restart_frame`).
+- `list_exception_breakpoints` / `set_exception_breakpoints` exercise the
+  adapter's exception-breakpoint filters (or the `does not support` gate when the
+  adapter advertises none).
+- `list_data_breakpoints` / `set_data_breakpoints` exercise data breakpoints (or
+  the `does not support` gate when the adapter lacks `supports_data_breakpoints`).
+- `set_ignore_breakpoints` toggles ignore-all and a follow-up confirms breakpoints
+  are honored / ignored.
+- `clear_breakpoints` empties `list_breakpoints`.
+- `read_memory` returns base64-decoded bytes on an adapter that advertises
+  `supports_read_memory_request`, and a clear `does not support` error otherwise.
+- `list_history` reports the session's historic snapshots; `select_history` on a
+  valid index makes the next `snapshot` reflect that frame, and an out-of-bounds
+  index returns a clear error.
+- `add_watch_expression` / `list_watch_expressions` / `remove_watch_expression`
+  add, list, and remove watch expressions, re-evaluating each on stop.
+- `list_modules` / `list_loaded_sources` return the loaded modules and sources
+  when the adapter advertises support, and a clear `does not support` error
+  otherwise.
+- `control` step actions honor an explicit `granularity` (default `line`); the
+  DAP step request carries `instruction` / `statement` when requested and the
+  adapter advertises `supports_stepping_granularity`.
 - After re-breaking, the wrong value is observable again.
 
 Expected outputs are annotated in each `main` file as `(expected …)`.

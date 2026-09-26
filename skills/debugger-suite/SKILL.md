@@ -46,6 +46,10 @@ fields spread at the scenario top level), `set_breakpoints` /
 detach | restart | restart_frame`),
 `evaluate` (`{session_id, expression, frame_id?}`), `set_variable`
 (`{session_id, variables_reference, name, value, frame_id?}`),
+`list_exception_breakpoints` / `set_exception_breakpoints`
+(`{id, enabled}` per filter), `list_data_breakpoints` / `set_data_breakpoints`
+(`{variables_reference, name, access_type?, condition?, hit_condition?}`),
+`set_ignore_breakpoints` (`{session_id, ignore}`), `clear_breakpoints`,
 `list_sessions`, `stop_session`.
 
 ## Adapter matrix
@@ -251,6 +255,39 @@ Procedure per adapter (after `start_session` and stopping at a breakpoint/entry)
 3. Assert the error is a clear, immediate capability/state error — never a
    hang or a DAP request the adapter silently rejects.
 
+### Breakpoint-class operations (new)
+
+Five new operations (three write ops with read counterparts, plus ignore-all and
+clear-all), all capability/state-gated. Exercise the gate on every adapter and
+the happy path where the adapter advertises support (happy paths are also covered
+by fake-adapter source tests in `crates/debugger_ui/src/tests/agent_api.rs`):
+
+- **`list_exception_breakpoints`** — returns the adapter's
+  `exception_breakpoint_filters` (id + label + enabled).
+- **`set_exception_breakpoints`** — idempotent enable/disable per filter
+  (`{ id, enabled }`), gated on `exception_breakpoint_filters`; returns a clear
+  `does not support` error when the adapter advertises none.
+- **`list_data_breakpoints`** — returns the session's data breakpoints.
+- **`set_data_breakpoints`** — resolves each `{ variables_reference, name }`
+  through DAP `dataBreakpointInfo` → `dataId`, then `setDataBreakpoints`, gated
+  on `supports_data_breakpoints`; returns a clear `does not support` error when
+  absent.
+- **`set_ignore_breakpoints`** — `{ session_id, ignore }`; re-sends source
+  breakpoints with/without the ignore flag (local running session only).
+- **`clear_breakpoints`** — project-global clear of all source breakpoints.
+
+Procedure per adapter (after `start_session` and stopping at a breakpoint/entry):
+
+1. `list_exception_breakpoints` → record the filters (or the `does not support`
+   gate).
+2. `set_exception_breakpoints` on one filter → `list_exception_breakpoints`
+   confirms the enabled flag changed (or assert the gate).
+3. `set_data_breakpoints` on a variable from a `snapshot` scope →
+   `list_data_breakpoints` shows it (or assert the `does not support` gate).
+4. `set_ignore_breakpoints true` → confirm a breakpoint no longer stops →
+   `set_ignore_breakpoints false`.
+5. `set_breakpoints` then `clear_breakpoints` → `list_breakpoints` returns empty.
+
 ## Acceptance criteria
 
 For every language, all of the following must hold:
@@ -272,6 +309,14 @@ For every language, all of the following must hold:
   the adapter advertises `supports_restart_request`).
 - `control restart_frame` returns a clear `does not support` error (or restarts
   the frame, when the adapter advertises `supports_restart_frame`).
+- `list_exception_breakpoints` / `set_exception_breakpoints` exercise the
+  adapter's exception-breakpoint filters (or the `does not support` gate when the
+  adapter advertises none).
+- `list_data_breakpoints` / `set_data_breakpoints` exercise data breakpoints (or
+  the `does not support` gate when the adapter lacks `supports_data_breakpoints`).
+- `set_ignore_breakpoints` toggles ignore-all and a follow-up confirms breakpoints
+  are honored / ignored.
+- `clear_breakpoints` empties `list_breakpoints`.
 - After re-breaking, the wrong value is observable again.
 
 Expected outputs are annotated in each `main` file as `(expected …)`.
